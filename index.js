@@ -100,6 +100,10 @@ You are not a chatbot. You are a receptionist whose job is to book patients.`
   }
 });
 
-app.listen(3000, () => {
-  console.log("Server running on http://localhost:3000");
+
+// ✅ FIXED PORT FOR RENDER
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
