@@ -1,4 +1,5 @@
 (function() {
+  // 💬 BUBBLE
   const bubble = document.createElement("div");
   bubble.innerHTML = "💬";
   bubble.style.position = "fixed";
@@ -17,6 +18,7 @@
   bubble.style.zIndex = "9999";
   bubble.style.boxShadow = "0 8px 20px rgba(0,0,0,0.3)";
 
+  // 🧠 CHAT WINDOW
   const iframe = document.createElement("iframe");
   iframe.src = "https://auxara-ai.vercel.app";
   iframe.style.position = "fixed";
@@ -30,9 +32,37 @@
   iframe.style.display = "none";
   iframe.style.zIndex = "9999";
 
+  // 🔔 NOTIFICATION MESSAGE
+  const notification = document.createElement("div");
+  notification.innerHTML = "Hi 👋 Looking to book a dental appointment?";
+  notification.style.position = "fixed";
+  notification.style.bottom = "90px";
+  notification.style.right = "90px";
+  notification.style.background = "#fff";
+  notification.style.padding = "10px 14px";
+  notification.style.borderRadius = "10px";
+  notification.style.boxShadow = "0 5px 15px rgba(0,0,0,0.2)";
+  notification.style.fontSize = "14px";
+  notification.style.cursor = "pointer";
+  notification.style.zIndex = "9999";
+  notification.style.maxWidth = "220px";
+
+  // ✨ SHOW AFTER DELAY
+  setTimeout(() => {
+    document.body.appendChild(notification);
+  }, 2000);
+
+  // ❌ CLICK NOTIFICATION → OPEN CHAT
+  notification.onclick = () => {
+    iframe.style.display = "block";
+    notification.remove();
+  };
+
+  // 💬 CLICK BUBBLE
   bubble.onclick = () => {
     iframe.style.display =
       iframe.style.display === "none" ? "block" : "none";
+    notification.remove();
   };
 
   document.body.appendChild(bubble);
