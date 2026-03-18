@@ -1,5 +1,9 @@
 (function() {
 
+  // 🧠 GET CLINIC NAME FROM SCRIPT URL
+  const params = new URLSearchParams(document.currentScript.src.split("?")[1]);
+  const clinic = params.get("clinic") || "unknown";
+
   // 💬 BUBBLE BUTTON
   const bubble = document.createElement("div");
   bubble.innerHTML = "💬";
@@ -34,12 +38,11 @@
   dot.style.background = "red";
   dot.style.borderRadius = "50%";
   dot.style.boxShadow = "0 0 6px rgba(255,0,0,0.7)";
-
   bubble.appendChild(dot);
 
   // 🧠 CHAT WINDOW (IFRAME)
   const iframe = document.createElement("iframe");
-  iframe.src = "https://auxara-ai.vercel.app";
+  iframe.src = `https://auxara-ai.vercel.app?clinic=${clinic}`;
   iframe.style.position = "fixed";
   iframe.style.bottom = "90px";
   iframe.style.right = "20px";
@@ -85,21 +88,21 @@
     openChat();
   };
 
-  // 💬 TOGGLE CHAT FUNCTION
+  // 💬 OPEN CHAT
   function openChat() {
     iframe.style.display = "block";
     setTimeout(() => iframe.style.opacity = "1", 10);
-
-    // remove notification + dot
     notification.remove();
     dot.remove();
   }
 
+  // ❌ CLOSE CHAT
   function closeChat() {
     iframe.style.opacity = "0";
     setTimeout(() => iframe.style.display = "none", 300);
   }
 
+  // 💬 TOGGLE CHAT
   bubble.onclick = () => {
     if (iframe.style.display === "none") {
       openChat();
@@ -108,7 +111,7 @@
     }
   };
 
-  // 🚀 AUTO-OPEN AFTER 6 SECONDS (POWER MOVE)
+  // 🚀 AUTO OPEN AFTER 6s
   setTimeout(() => {
     openChat();
   }, 6000);
