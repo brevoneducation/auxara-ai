@@ -15,7 +15,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 🧠 TEMP MEMORY (per IP)
+// 🧠 MEMORY (per user IP)
 const userState = {};
 
 app.get("/", (req, res) => {
@@ -23,29 +23,34 @@ app.get("/", (req, res) => {
 });
 
 app.post("/chat", async (req, res) => {
-  const userMessage = req.body.message;
+  const userMessage = req.body.message.trim();
   const clinic = req.body.clinic || "unknown";
-  const userId = req.ip; // simple tracking
+  const userId = req.ip;
 
   if (!userState[userId]) {
-    userState[userId] = {};
+    userState[userId] = {
+      name: null,
+      phone: null,
+      time: null,
+      sent: false
+    };
   }
 
   const state = userState[userId];
 
   try {
-    // 🔍 DETECT NAME (basic)
-    if (!state.name && /^[a-zA-Z ]{2,30}$/.test(userMessage)) {
-      state.name = userMessage.trim();
+    // ✅ NAME DETECTION (ONLY ONCE)
+    if (!state.name && /^[a-zA-Z]{2,20}( [a-zA-Z]{2,20})?$/.test(userMessage)) {
+      state.name = userMessage;
     }
 
-    // 🔍 DETECT PHONE
-    const phoneMatch = userMessage.match(/\+?\d[\d\s-]{7,15}/);
-    if (phoneMatch) {
-      state.phone = phoneMatch[0];
+    // ✅ STRICT PHONE VALIDATION
+    const cleanPhone = userMessage.replace(/\s+/g, "");
+    if (!state.phone && /^\+?\d{10,14}$/.test(cleanPhone)) {
+      state.phone = cleanPhone;
     }
 
-    // 🚀 SEND TO TELEGRAM ONLY WHEN BOTH EXIST
+    // 🚀 SEND TO TELEGRAM ONLY ONCE (FULL LEAD)
     if (state.name && state.phone && !state.sent) {
       await axios.post(
         `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
@@ -62,21 +67,10 @@ Phone: ${state.phone}`
       state.sent = true;
     }
 
-    // 🧠 CONTROLLED FLOW (VERY IMPORTANT)
+    // 🎯 CONTROLLED FLOW
     let reply = "";
 
-    if (!state.name) {
-      reply = "I’ll get this checked for you 😊 What’s your name?";
-    } else if (!state.phone) {
-      reply = `Got it, ${state.name} 👍 What’s your phone number?`;
-    } else if (!state.time) {
-      state.time = userMessage;
-      reply = "Perfect. What time works best for you?";
-    } else {
-      reply = "Done! I’ll have the clinic confirm your appointment shortly 😊";
-    }
-
-    // 🤖 ONLY USE AI FOR FIRST MESSAGE / QUESTIONS
+    // 1️⃣ FIRST MESSAGE → USE AI
     if (!state.name && !state.phone) {
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
@@ -84,12 +78,12 @@ Phone: ${state.phone}`
           {
             role: "system",
             content: `
-You are a smart dental receptionist.
+You are a friendly dental receptionist.
 
 - Answer briefly
 - Then ask for name
 - 1–2 lines only
-- Friendly + natural
+- Natural human tone
 `
           },
           {
@@ -100,6 +94,27 @@ You are a smart dental receptionist.
       });
 
       reply = completion.choices[0].message.content;
+    }
+
+    // 2️⃣ ASK NAME
+    else if (!state.name) {
+      reply = "I’ll get this booked for you 😊 What’s your name?";
+    }
+
+    // 3️⃣ ASK PHONE
+    else if (!state.phone) {
+      reply = `Got it, ${state.name} 👍 What’s your phone number?`;
+    }
+
+    // 4️⃣ ASK TIME
+    else if (!state.time) {
+      state.time = userMessage;
+      reply = "Perfect. What time works best for you?";
+    }
+
+    // 5️⃣ FINAL CONFIRM
+    else {
+      reply = "Done! I’ll have the clinic confirm your appointment shortly 😊";
     }
 
     res.json({ reply });
