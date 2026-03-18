@@ -30,7 +30,20 @@ app.post("/chat", async (req, res) => {
   const originalMessage = req.body.message.trim();
   const lower = originalMessage.toLowerCase();
   const clinic = req.body.clinic || "unknown";
-  const userId = req.ip;
+
+  // 🔥 BETTER USER IDENTIFICATION
+  const userId = req.headers["x-forwarded-for"] || req.ip;
+
+  // 🔄 RESET LOGIC (new convo)
+  if (
+    originalMessage.length < 25 &&
+    !originalMessage.match(/\d/) &&
+    ["hi", "hello", "hey", "pain", "problem", "need"].some(word =>
+      lower.includes(word)
+    )
+  ) {
+    userState[userId] = { name: null, phone: null, sent: false };
+  }
 
   if (!userState[userId]) {
     userState[userId] = {
@@ -43,23 +56,22 @@ app.post("/chat", async (req, res) => {
   const state = userState[userId];
 
   try {
-
-    // ✅ DETECT PHONE (FLEXIBLE INTERNATIONAL)
+    // ✅ PHONE DETECTION (GLOBAL FLEXIBLE)
     const phoneMatch = originalMessage.match(/\+?\d[\d\s-]{7,15}/);
     if (!state.phone && phoneMatch) {
       state.phone = phoneMatch[0].replace(/\s+/g, "");
     }
 
-    // ✅ DETECT NAME (SMART FILTER)
+    // ✅ NAME DETECTION (STRICT + CLEAN)
     if (
       !state.name &&
-      /^[a-zA-Z ]{2,25}$/.test(originalMessage) &&
+      /^[a-zA-Z]{3,20}( [a-zA-Z]{3,20})?$/.test(originalMessage) &&
       !invalidNames.includes(lower)
     ) {
       state.name = originalMessage;
     }
 
-    // 🚀 SEND LEAD ONLY WHEN BOTH EXIST
+    // 🚀 SEND LEAD (ONLY ONCE)
     if (state.name && state.phone && !state.sent) {
       await axios.post(
         `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
@@ -79,7 +91,7 @@ Phone: ${state.phone}`
     // 🎯 FLOW
     let reply = "";
 
-    // FIRST MESSAGE → AI RESPONSE
+    // FIRST INTERACTION → AI
     if (!state.name && !state.phone) {
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
@@ -87,15 +99,25 @@ Phone: ${state.phone}`
           {
             role: "system",
             content: `
-You are a smart dental receptionist.
+You are a professional dental receptionist.
 
-- Answer user naturally
-- Then ask for their name
-- Keep it short (1–2 lines)
-- Friendly and human
+GOAL:
+Answer briefly, then guide toward booking.
 
-Example:
+STYLE:
+- 1–2 lines
+- Friendly, human
+- Confident but not pushy
+
+RULES:
+- Answer user question first
+- Then ask for name naturally
+- No long explanations
+- No robotic tone
+
+Examples:
 "That can be treated easily 😊 What’s your name?"
+"That sounds painful—you should get it checked soon. What’s your name?"
 `
           },
           {
@@ -118,7 +140,7 @@ Example:
       reply = `Thanks ${state.name} 👍 What’s your phone number?`;
     }
 
-    // FINAL MESSAGE
+    // FINAL CLOSE
     else {
       reply = "Perfect 👍 Our team will contact you shortly.";
     }
