@@ -17,6 +17,9 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// 🧠 MEMORY STORE (PER USER SESSION)
+const sessions = {};
+
 // ✅ TEST ROUTE
 app.get("/", (req, res) => {
   res.send("Auxara AI Server is running 🚀");
@@ -25,91 +28,143 @@ app.get("/", (req, res) => {
 app.post("/chat", async (req, res) => {
   const userMessage = req.body.message;
   const clinic = req.body.clinic || "unknown";
+  const sessionId = req.body.sessionId || "default";
+
+  // 🧠 INIT SESSION
+  if (!sessions[sessionId]) {
+    sessions[sessionId] = {
+      messages: [],
+      name: null,
+      phone: null,
+      time: null,
+    };
+  }
+
+  const session = sessions[sessionId];
+
+  // 🔍 EXTRACT NAME (simple)
+  if (!session.name && /^[A-Za-z ]{3,}$/.test(userMessage)) {
+    session.name = userMessage.trim();
+  }
+
+  // 🔍 EXTRACT PHONE
+  if (!session.phone) {
+    const phoneMatch = userMessage.match(/\+?\d{8,15}/);
+    if (phoneMatch) session.phone = phoneMatch[0];
+  }
+
+  // 🔍 EXTRACT TIME (basic)
+  if (!session.time && userMessage.match(/am|pm|\d{1,2}/i)) {
+    session.time = userMessage;
+  }
+
+  session.messages.push({ role: "user", content: userMessage });
 
   try {
-
-    // 🚀 SEND LEAD TO TELEGRAM (WHEN NUMBER DETECTED)
-    if (userMessage.match(/\d{10}/)) {
-      await axios.post(`https://api.telegram.org/bot8731048905:AAEkRSsO-2_diW6IA-lzS-8sdTUll081Wkg/sendMessage`, {
-        chat_id: "6102188932", // 👈 your chat id
-        text: `🚀 New Lead
-
-Clinic: ${clinic}
-Message: ${userMessage}`
-      });
-    }
-
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: `You are a high-performing dental clinic receptionist focused on converting visitors into booked appointments.
+          content: `
+You are a high-end dental receptionist trained in patient conversion psychology.
 
-IMPORTANT BEHAVIOR:
-- First, answer the user's question clearly (if they ask something)
-- Then smoothly guide them toward booking
-- Never ignore their question
-- Never sound robotic or pushy
-- Be natural, confident, slightly persuasive
+CURRENT CONTEXT:
+Name: ${session.name || "not provided"}
+Phone: ${session.phone || "not provided"}
+Time: ${session.time || "not provided"}
+
+CORE BEHAVIOR:
+
+1. Always acknowledge the user first
+2. Then guide toward booking
+3. Never repeat questions already answered
+4. Never lose context
+5. Sound human, calm, confident
+
+FLOW:
+
+- If user shares problem → respond with empathy + urgency
+- If no name → ask name
+- If no phone → ask phone
+- If both available → ask for time
+- If time given → confirm booking
+
+PSYCHOLOGY:
+
+- Be slightly authoritative ("we should get this checked")
+- Reduce friction
+- Assume booking will happen
+- Keep momentum forward
 
 STYLE:
-- Short replies (1–2 lines)
-- Friendly + human-like
-- No long explanations
-- No fluff
 
-GOAL:
-Capture name + phone number and move toward booking.
+- Max 2 lines
+- Natural tone
+- No robotic phrasing
+- No long paragraphs
 
-SERVICES:
-Teeth cleaning, whitening, root canal, braces/aligners, implants, checkups
+EXAMPLES:
 
-SMART FLOW:
+Pain:
+"That sounds painful. We should get that checked quickly 😊 What’s your name and phone number?"
 
-If user asks question:
-→ Answer briefly
-→ Then say: "I can get this checked for you 😊 What’s your name and phone number?"
+After details:
+"Perfect, Akshat. I’ve got your details 😊 What time works best for you?"
 
-If user shows interest:
-→ "I’ll get this booked for you 😊 What’s your name and phone number?"
+After time:
+"Done. I’ll have the clinic confirm your 7pm slot shortly 😊"
 
-If user gives only name:
-→ "Got it 👍 Could you also share your phone number?"
-
-If user gives number:
-→ "Perfect. What time works best for you?"
-
-If pain:
-→ Show urgency + then booking
-
-If pricing:
-→ Give general idea → then booking
+Pricing:
+"That depends on the case. I’ll have the clinic confirm exact cost 😊 What’s your name and phone number?"
 
 STRICT RULES:
-- Never say “How can I help?”
-- Never give long paragraphs
-- Always move conversation forward
-- Always aim to capture lead
 
-You are not a chatbot. You are a smart closer.`
+- Never ask same thing twice
+- Never restart flow
+- Never act like a chatbot
+- Always move forward
+
+You are a receptionist whose job is to book patients efficiently.
+`
         },
-        {
-          role: "user",
-          content: userMessage,
-        },
+        ...session.messages,
       ],
     });
 
     const reply = completion.choices[0].message.content;
 
-    console.log(`📩 Clinic: ${clinic} | Message: ${userMessage}`);
+    session.messages.push({ role: "assistant", content: reply });
+
+    // 📩 SEND TO TELEGRAM WHEN BOTH NAME + PHONE AVAILABLE
+    if (session.name && session.phone && !session.sent) {
+      session.sent = true;
+
+      await axios.post(
+        `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
+        {
+          chat_id: process.env.TELEGRAM_CHAT_ID,
+          text: `🔥 NEW PATIENT LEAD
+
+🏥 Clinic: ${clinic}
+👤 Name: ${session.name}
+📞 Phone: ${session.phone}
+📝 Last Message: ${userMessage}
+
+⏱ Time: ${new Date().toLocaleString()}
+`,
+        }
+      );
+    }
 
     res.json({ reply });
 
   } catch (error) {
     console.error(error);
-    res.status(500).json({ reply: "Error connecting to AI" });
+
+    res.json({
+      reply: "Just a second… reconnecting 😊",
+    });
   }
 });
 
