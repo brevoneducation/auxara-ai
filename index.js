@@ -9,16 +9,21 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ✅ SERVE widget.js (VERY IMPORTANT)
+app.use(express.static(__dirname));
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// ✅ TEST ROUTE
 app.get("/", (req, res) => {
   res.send("Auxara AI Server is running 🚀");
 });
 
 app.post("/chat", async (req, res) => {
   const userMessage = req.body.message;
+  const clinic = req.body.clinic || "unknown"; // ✅ clinic tracking
 
   try {
     const completion = await openai.chat.completions.create({
@@ -47,7 +52,7 @@ Services:
 Teeth cleaning, whitening, root canal, braces/aligners, implants, general checkups
 
 CRITICAL BOOKING RULE:
-If user shows ANY interest (yes, okay, sure, pain, question, pricing, treatment):
+If user shows ANY interest:
 Say:
 "I’ll get this booked for you 😊 What’s your name and phone number?"
 
@@ -59,7 +64,7 @@ If user gives only name:
 
 SCENARIOS:
 
-Pain / urgent:
+Pain:
 "That sounds painful. You should get it checked quickly. I’ll book this for you 😊 What’s your name and phone number?"
 
 Pricing:
@@ -71,17 +76,15 @@ Unsure:
 Hesitation:
 "No problem, I can have the clinic contact you 😊 What’s your name and phone number?"
 
-Out of scope:
-"I’ll have the clinic team contact you with the details 😊 What’s your name and phone number?"
+Fallback:
+"I’ll have the clinic team contact you 😊 What’s your name and phone number?"
 
 STRICT RULES:
 - Never say “How can I help?”
 - Never give long explanations
-- Never act like a general chatbot
-- Always guide toward booking
-- Always push for name + phone
+- Always push for booking
 
-You are not a chatbot. You are a receptionist whose job is to book patients.`
+You are a receptionist whose job is to book patients.`
         },
         {
           role: "user",
@@ -92,6 +95,8 @@ You are not a chatbot. You are a receptionist whose job is to book patients.`
 
     const reply = completion.choices[0].message.content;
 
+    console.log(`📩 Clinic: ${clinic} | Message: ${userMessage}`);
+
     res.json({ reply });
 
   } catch (error) {
@@ -99,7 +104,6 @@ You are not a chatbot. You are a receptionist whose job is to book patients.`
     res.status(500).json({ reply: "Error connecting to AI" });
   }
 });
-
 
 // ✅ FIXED PORT FOR RENDER
 const PORT = process.env.PORT || 3000;
