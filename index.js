@@ -15,36 +15,20 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 🧠 MEMORY
 const userState = {};
 
 const invalidNames = [
   "ok", "okay", "yes", "hi", "hello", "hey", "hmm", "yo"
 ];
 
-app.get("/", (req, res) => {
-  res.send("Auxara AI Server is running 🚀");
-});
-
 app.post("/chat", async (req, res) => {
-  const originalMessage = req.body.message.trim();
-  const lower = originalMessage.toLowerCase();
+  const message = req.body.message.trim();
+  const lower = message.toLowerCase();
   const clinic = req.body.clinic || "unknown";
 
-  // 🔥 BETTER USER IDENTIFICATION
   const userId = req.headers["x-forwarded-for"] || req.ip;
 
-  // 🔄 RESET LOGIC (new convo)
-  if (
-    originalMessage.length < 25 &&
-    !originalMessage.match(/\d/) &&
-    ["hi", "hello", "hey", "pain", "problem", "need"].some(word =>
-      lower.includes(word)
-    )
-  ) {
-    userState[userId] = { name: null, phone: null, sent: false };
-  }
-
+  // INIT STATE
   if (!userState[userId]) {
     userState[userId] = {
       name: null,
@@ -56,42 +40,48 @@ app.post("/chat", async (req, res) => {
   const state = userState[userId];
 
   try {
-    // ✅ PHONE DETECTION (GLOBAL FLEXIBLE)
-    const phoneMatch = originalMessage.match(/\+?\d[\d\s-]{7,15}/);
+    // 🔍 DETECT PHONE
+    const phoneMatch = message.match(/\+?\d[\d\s-]{7,15}/);
     if (!state.phone && phoneMatch) {
       state.phone = phoneMatch[0].replace(/\s+/g, "");
     }
 
-    // ✅ NAME DETECTION (STRICT + CLEAN)
+    // 🔍 DETECT NAME
     if (
       !state.name &&
-      /^[a-zA-Z]{3,20}( [a-zA-Z]{3,20})?$/.test(originalMessage) &&
+      /^[a-zA-Z]{3,20}( [a-zA-Z]{3,20})?$/.test(message) &&
       !invalidNames.includes(lower)
     ) {
-      state.name = originalMessage;
+      state.name = message;
     }
 
-    // 🚀 SEND LEAD (ONLY ONCE)
-    if (state.name && state.phone && !state.sent) {
-      await axios.post(
-        `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
-        {
-          chat_id: process.env.TELEGRAM_CHAT_ID,
-          text: `🚀 New Lead
+    // 🚀 IF BOTH FOUND → SEND + LOCK
+    if (state.name && state.phone) {
+      if (!state.sent) {
+        await axios.post(
+          `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
+          {
+            chat_id: process.env.TELEGRAM_CHAT_ID,
+            text: `🚀 New Lead
 
 Clinic: ${clinic}
 Name: ${state.name}
 Phone: ${state.phone}`
-        }
-      );
+          }
+        );
 
-      state.sent = true;
+        state.sent = true;
+      }
+
+      // 🔒 HARD STOP (NO MORE LOGIC AFTER THIS)
+      return res.json({
+        reply: "Perfect 👍 Our team will contact you shortly."
+      });
     }
 
     // 🎯 FLOW
-    let reply = "";
 
-    // FIRST INTERACTION → AI
+    // 1. FIRST MESSAGE → AI
     if (!state.name && !state.phone) {
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
@@ -99,53 +89,42 @@ Phone: ${state.phone}`
           {
             role: "system",
             content: `
-You are a professional dental receptionist.
+You are a dental receptionist.
 
-GOAL:
-Answer briefly, then guide toward booking.
+- Answer briefly
+- Then ask for name
+- 1–2 lines only
+- Friendly and natural
 
-STYLE:
-- 1–2 lines
-- Friendly, human
-- Confident but not pushy
-
-RULES:
-- Answer user question first
-- Then ask for name naturally
-- No long explanations
-- No robotic tone
-
-Examples:
-"That can be treated easily 😊 What’s your name?"
-"That sounds painful—you should get it checked soon. What’s your name?"
+Example:
+"That sounds painful—you should get it checked soon 😊 What’s your name?"
 `
           },
           {
             role: "user",
-            content: originalMessage,
+            content: message,
           },
         ],
       });
 
-      reply = completion.choices[0].message.content;
+      return res.json({
+        reply: completion.choices[0].message.content
+      });
     }
 
-    // ASK NAME
-    else if (!state.name) {
-      reply = "I’ll get this arranged for you 😊 What’s your name?";
+    // 2. ASK NAME
+    if (!state.name) {
+      return res.json({
+        reply: "I’ll get this arranged for you 😊 What’s your name?"
+      });
     }
 
-    // ASK PHONE
-    else if (!state.phone) {
-      reply = `Thanks ${state.name} 👍 What’s your phone number?`;
+    // 3. ASK PHONE
+    if (!state.phone) {
+      return res.json({
+        reply: `Thanks ${state.name} 👍 What’s your phone number?`
+      });
     }
-
-    // FINAL CLOSE
-    else {
-      reply = "Perfect 👍 Our team will contact you shortly.";
-    }
-
-    res.json({ reply });
 
   } catch (error) {
     console.error(error);
