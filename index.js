@@ -30,20 +30,26 @@ setInterval(() => {
 
 // ✅ STRICT NAME VALIDATION
 function isValidName(str) {
-  const excluded = [
-    "ok","okay","yes","no","hi","hello","hey","sure",
-    "thanks","thank you","please","help",
-    "tooth","pain","teeth","dental","appointment","booking"
-  ];
-
   const cleaned = str.trim().toLowerCase();
 
-  if (excluded.includes(cleaned)) return false;
+  const excludedWords = [
+    "ok","okay","yes","no","hi","hello","hey","sure",
+    "thanks","thank you","please","help",
+    "tooth","pain","toothache","teeth","dental",
+    "appointment","booking","problem","issue","hurt"
+  ];
 
+  // ❌ Reject if contains problem-related words
+  for (let word of excludedWords) {
+    if (cleaned.includes(word)) return false;
+  }
+
+  // Only letters and spaces
   if (!/^[a-zA-Z ]{2,30}$/.test(str)) return false;
 
-  // ❗ reject sentences
-  if (str.trim().split(" ").length > 3) return false;
+  // Max 2 words (MOST IMPORTANT FIX)
+  const words = str.trim().split(" ");
+  if (words.length > 2) return false;
 
   return true;
 }
