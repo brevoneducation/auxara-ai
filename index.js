@@ -28,13 +28,22 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000);
 
-// NAME VALIDATION
+// ✅ STRICT NAME VALIDATION (FIXED)
 function isValidName(str) {
-  const excluded = ["ok","okay","yes","no","hi","hello","hey","sure","thanks"];
+  const excluded = [
+    "ok","okay","yes","no","hi","hello","hey","sure",
+    "thanks","thank you","please","help",
+    "tooth","pain","teeth","dental","appointment","booking"
+  ];
+
   const cleaned = str.trim().toLowerCase();
 
   if (excluded.includes(cleaned)) return false;
-  if (!/^[a-zA-Z ]{2,40}$/.test(str)) return false;
+
+  if (!/^[a-zA-Z ]{2,30}$/.test(str)) return false;
+
+  // ❗ reject sentences
+  if (str.trim().split(" ").length > 3) return false;
 
   return true;
 }
@@ -71,30 +80,40 @@ app.post("/chat", async (req, res) => {
 
   const state = sessions[sessionId];
 
-  // EXTRACT PHONE
+  // ✅ EXTRACT PHONE
   const phone = extractPhone(message);
-  if (phone && !state.phone) state.phone = phone;
+  if (phone && !state.phone) {
+    state.phone = phone;
+  }
 
-  // EXTRACT NAME
-  if (!phone && !state.name && isValidName(message)) {
+  // ✅ EXTRACT NAME (STRICT)
+  if (
+    !phone &&
+    !state.name &&
+    isValidName(message)
+  ) {
     state.name = message.trim();
   }
 
-  // SEND TO TELEGRAM
+  // ✅ SEND TO TELEGRAM (ONLY ONCE)
   if (state.name && state.phone && !state.sent) {
-    await axios.post(
-      `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
-      {
-        chat_id: process.env.TELEGRAM_CHAT_ID,
-        text: `🚀 New Lead
+    try {
+      await axios.post(
+        `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
+        {
+          chat_id: process.env.TELEGRAM_CHAT_ID,
+          text: `🚀 New Lead
 
 Clinic: ${clinic || "unknown"}
 Name: ${state.name}
 Phone: ${state.phone}`
-      }
-    );
+        }
+      );
 
-    state.sent = true;
+      state.sent = true;
+    } catch (err) {
+      console.error("Telegram error:", err.message);
+    }
   }
 
   const stateContext = `
@@ -102,6 +121,7 @@ Name: ${state.name || "not collected"}
 Phone: ${state.phone || "not collected"}
 `;
 
+  // SAVE USER MESSAGE
   state.history.push({ role: "user", content: message });
 
   if (state.history.length > 10) {
@@ -119,18 +139,22 @@ You are a smart dental receptionist.
 
 ${stateContext}
 
-RULES:
-- Answer briefly
-- Then guide toward collecting details
-- Ask only missing info
-- Never repeat questions
+STRICT RULES:
+- Be short, natural, human
+- NEVER restart conversation
+- NEVER say "how can I help" again
+- NEVER repeat questions
 
-Flow:
-- If no name → ask name
-- If name but no phone → ask phone
-- If both → confirm and stop
+FLOW (STRICT):
+- If name NOT collected → ask name
+- If name collected but phone NOT → ask phone
+- If both collected → say:
+  "Perfect 👍 Our team will contact you shortly."
 
-Keep replies short, natural, human.
+IMPORTANT:
+- Do not treat sentences as names
+- Do not ask same thing again
+- Stay focused on collecting details
 `
         },
         ...state.history
@@ -139,6 +163,7 @@ Keep replies short, natural, human.
 
     const reply = completion.choices[0].message.content;
 
+    // SAVE AI RESPONSE
     state.history.push({ role: "assistant", content: reply });
 
     res.json({ reply });
