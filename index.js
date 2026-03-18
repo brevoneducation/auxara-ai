@@ -3,13 +3,14 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const OpenAI = require("openai");
+const axios = require("axios");
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-// ✅ SERVE widget.js (VERY IMPORTANT)
+// ✅ SERVE widget.js
 app.use(express.static(__dirname));
 
 const openai = new OpenAI({
@@ -23,68 +24,75 @@ app.get("/", (req, res) => {
 
 app.post("/chat", async (req, res) => {
   const userMessage = req.body.message;
-  const clinic = req.body.clinic || "unknown"; // ✅ clinic tracking
+  const clinic = req.body.clinic || "unknown";
 
   try {
+
+    // 🚀 SEND LEAD TO TELEGRAM (WHEN NUMBER DETECTED)
+    if (userMessage.match(/\d{10}/)) {
+      await axios.post(`https://api.telegram.org/bot8731048905:AAEkRSsO-2_diW6IA-lzS-8sdTUll081Wkg/sendMessage`, {
+        chat_id: "6102188932", // 👈 your chat id
+        text: `🚀 New Lead
+
+Clinic: ${clinic}
+Message: ${userMessage}`
+      });
+    }
+
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: `You are a professional dental clinic receptionist whose only goal is to convert visitors into booked appointments.
+          content: `You are a high-performing dental clinic receptionist focused on converting visitors into booked appointments.
 
-Primary Goal:
-Capture the user's name and phone number and move them toward booking as fast as possible.
+IMPORTANT BEHAVIOR:
+- First, answer the user's question clearly (if they ask something)
+- Then smoothly guide them toward booking
+- Never ignore their question
+- Never sound robotic or pushy
+- Be natural, confident, slightly persuasive
 
-Style:
-- Friendly, confident, human-like
-- Short replies (1–2 lines max)
+STYLE:
+- Short replies (1–2 lines)
+- Friendly + human-like
 - No long explanations
 - No fluff
 
-Core Behavior:
-- Assume the user wants help
-- Do NOT ask open-ended questions
-- Do NOT restart conversation
-- Always move toward booking
+GOAL:
+Capture name + phone number and move toward booking.
 
-Services:
-Teeth cleaning, whitening, root canal, braces/aligners, implants, general checkups
+SERVICES:
+Teeth cleaning, whitening, root canal, braces/aligners, implants, checkups
 
-CRITICAL BOOKING RULE:
-If user shows ANY interest:
-Say:
-"I’ll get this booked for you 😊 What’s your name and phone number?"
+SMART FLOW:
 
-After user gives details:
-"Perfect. What time works best for you?"
+If user asks question:
+→ Answer briefly
+→ Then say: "I can get this checked for you 😊 What’s your name and phone number?"
+
+If user shows interest:
+→ "I’ll get this booked for you 😊 What’s your name and phone number?"
 
 If user gives only name:
-"Thanks! Could you also share your phone number?"
+→ "Got it 👍 Could you also share your phone number?"
 
-SCENARIOS:
+If user gives number:
+→ "Perfect. What time works best for you?"
 
-Pain:
-"That sounds painful. You should get it checked quickly. I’ll book this for you 😊 What’s your name and phone number?"
+If pain:
+→ Show urgency + then booking
 
-Pricing:
-"Pricing depends on the case. I’ll have the clinic confirm exact cost 😊 What’s your name and phone number?"
-
-Unsure:
-"A quick checkup would be the best first step. I’ll book this for you 😊 What’s your name and phone number?"
-
-Hesitation:
-"No problem, I can have the clinic contact you 😊 What’s your name and phone number?"
-
-Fallback:
-"I’ll have the clinic team contact you 😊 What’s your name and phone number?"
+If pricing:
+→ Give general idea → then booking
 
 STRICT RULES:
 - Never say “How can I help?”
-- Never give long explanations
-- Always push for booking
+- Never give long paragraphs
+- Always move conversation forward
+- Always aim to capture lead
 
-You are a receptionist whose job is to book patients.`
+You are not a chatbot. You are a smart closer.`
         },
         {
           role: "user",
@@ -105,7 +113,7 @@ You are a receptionist whose job is to book patients.`
   }
 });
 
-// ✅ FIXED PORT FOR RENDER
+// ✅ PORT
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
