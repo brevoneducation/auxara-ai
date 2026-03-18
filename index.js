@@ -9,18 +9,15 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
-
-// ✅ SERVE widget.js
 app.use(express.static(__dirname));
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 🧠 MEMORY STORE (PER USER SESSION)
+// 🧠 MEMORY
 const sessions = {};
 
-// ✅ TEST ROUTE
 app.get("/", (req, res) => {
   res.send("Auxara AI Server is running 🚀");
 });
@@ -30,31 +27,33 @@ app.post("/chat", async (req, res) => {
   const clinic = req.body.clinic || "unknown";
   const sessionId = req.body.sessionId || "default";
 
-  // 🧠 INIT SESSION
   if (!sessions[sessionId]) {
     sessions[sessionId] = {
       messages: [],
       name: null,
       phone: null,
       time: null,
+      sent: false,
     };
   }
 
   const session = sessions[sessionId];
 
-  // 🔍 EXTRACT NAME (simple)
-  if (!session.name && /^[A-Za-z ]{3,}$/.test(userMessage)) {
-    session.name = userMessage.trim();
+  // 🔍 PHONE DETECTION (STRONG)
+  const phoneMatch = userMessage.match(/\+?\d{10,15}/);
+  if (phoneMatch) {
+    session.phone = phoneMatch[0];
   }
 
-  // 🔍 EXTRACT PHONE
-  if (!session.phone) {
-    const phoneMatch = userMessage.match(/\+?\d{8,15}/);
-    if (phoneMatch) session.phone = phoneMatch[0];
+  // 🔍 NAME DETECTION (BETTER)
+  if (!session.name && !phoneMatch && userMessage.length < 40) {
+    if (/^[a-zA-Z ]+$/.test(userMessage)) {
+      session.name = userMessage.trim();
+    }
   }
 
-  // 🔍 EXTRACT TIME (basic)
-  if (!session.time && userMessage.match(/am|pm|\d{1,2}/i)) {
+  // 🔍 TIME DETECTION
+  if (!session.time && /(am|pm|\d{1,2}[: ]?\d{0,2})/i.test(userMessage)) {
     session.time = userMessage;
   }
 
@@ -67,65 +66,57 @@ app.post("/chat", async (req, res) => {
         {
           role: "system",
           content: `
-You are a high-end dental receptionist trained in patient conversion psychology.
+You are a high-end dental clinic receptionist trained in real-world patient conversion.
 
-CURRENT CONTEXT:
-Name: ${session.name || "not provided"}
-Phone: ${session.phone || "not provided"}
-Time: ${session.time || "not provided"}
+CURRENT STATE:
+Name: ${session.name || "missing"}
+Phone: ${session.phone || "missing"}
+Time: ${session.time || "missing"}
 
-CORE BEHAVIOR:
+BEHAVIOR:
 
-1. Always acknowledge the user first
-2. Then guide toward booking
-3. Never repeat questions already answered
-4. Never lose context
-5. Sound human, calm, confident
+1. Always respond naturally first
+2. Then move conversation forward
+3. NEVER repeat questions
+4. NEVER lose context
 
 FLOW:
 
-- If user shares problem → respond with empathy + urgency
-- If no name → ask name
-- If no phone → ask phone
-- If both available → ask for time
+- If pain → show urgency + guide booking
+- If missing name → ask name
+- If missing phone → ask phone
+- If both available → ask time
 - If time given → confirm booking
-
-PSYCHOLOGY:
-
-- Be slightly authoritative ("we should get this checked")
-- Reduce friction
-- Assume booking will happen
-- Keep momentum forward
 
 STYLE:
 
 - Max 2 lines
-- Natural tone
-- No robotic phrasing
-- No long paragraphs
+- Human tone
+- Slight authority (not pushy)
+- Smooth transitions
 
 EXAMPLES:
 
 Pain:
-"That sounds painful. We should get that checked quickly 😊 What’s your name and phone number?"
+"That sounds painful. We should get that checked quickly 😊 What’s your name?"
 
-After details:
-"Perfect, Akshat. I’ve got your details 😊 What time works best for you?"
+After name:
+"Nice to meet you, Iqra 😊 What’s the best number to reach you?"
+
+After phone:
+"Perfect, got it 👍 What time works best for you?"
 
 After time:
-"Done. I’ll have the clinic confirm your 7pm slot shortly 😊"
+"Done. I’ll have the clinic confirm your 10am slot shortly 😊"
 
-Pricing:
-"That depends on the case. I’ll have the clinic confirm exact cost 😊 What’s your name and phone number?"
+STRICT:
 
-STRICT RULES:
-
+- Never restart conversation
+- Never act robotic
 - Never ask same thing twice
-- Never restart flow
-- Never act like a chatbot
-- Always move forward
+- Always progress forward
 
-You are a receptionist whose job is to book patients efficiently.
+You are a real receptionist, not a chatbot.
 `
         },
         ...session.messages,
@@ -136,25 +127,29 @@ You are a receptionist whose job is to book patients efficiently.
 
     session.messages.push({ role: "assistant", content: reply });
 
-    // 📩 SEND TO TELEGRAM WHEN BOTH NAME + PHONE AVAILABLE
+    // 📩 TELEGRAM (SAFE VERSION)
     if (session.name && session.phone && !session.sent) {
       session.sent = true;
 
-      await axios.post(
-        `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
-        {
-          chat_id: process.env.TELEGRAM_CHAT_ID,
-          text: `🔥 NEW PATIENT LEAD
+      try {
+        await axios.post(
+          `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
+          {
+            chat_id: process.env.TELEGRAM_CHAT_ID,
+            text: `🔥 NEW LEAD
 
 🏥 Clinic: ${clinic}
 👤 Name: ${session.name}
 📞 Phone: ${session.phone}
-📝 Last Message: ${userMessage}
+🕒 Time: ${session.time || "Not given"}
 
-⏱ Time: ${new Date().toLocaleString()}
+💬 Last Message: ${userMessage}
 `,
-        }
-      );
+          }
+        );
+      } catch (err) {
+        console.log("Telegram failed but continuing...");
+      }
     }
 
     res.json({ reply });
@@ -163,12 +158,11 @@ You are a receptionist whose job is to book patients efficiently.
     console.error(error);
 
     res.json({
-      reply: "Just a second… reconnecting 😊",
+      reply: "Got it 👍 just one sec...",
     });
   }
 });
 
-// ✅ PORT
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
