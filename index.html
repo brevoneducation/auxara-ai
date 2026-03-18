@@ -136,6 +136,20 @@
       from { opacity: 0; transform: translateY(5px); }
       to { opacity: 1; transform: translateY(0); }
     }
+
+    /* ✅ SCROLLBAR FIX */
+    #messages::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    #messages::-webkit-scrollbar-thumb {
+      background: #ccc;
+      border-radius: 10px;
+    }
+
+    #messages::-webkit-scrollbar-thumb:hover {
+      background: #aaa;
+    }
   </style>
 </head>
 
@@ -147,13 +161,7 @@
     Smart Dental Assistant
   </div>
 
-  <div id="messages">
-    <div class="ai">
-      <div class="bubble">
-        👋 Hi! I can help you book a dental appointment instantly.
-      </div>
-    </div>
-  </div>
+  <div id="messages"></div>
 
   <div id="inputArea">
     <input id="input" placeholder="Type your message..." />
@@ -167,14 +175,14 @@ const messages = document.getElementById("messages");
 
 const BACKEND = "https://auxara-ai.onrender.com";
 
-// 🔥 GET CLINIC NAME FROM URL
+// 🔥 GET CLINIC NAME
 const urlParams = new URLSearchParams(window.location.search);
 const clinic = urlParams.get("clinic") || "unknown";
 
-// 🧠 SESSION ID
+// 🧠 SESSION
 let sessionId = null;
 
-// CREATE SESSION
+// INIT SESSION
 async function initSession() {
   try {
     const res = await fetch(`${BACKEND}/session`, {
@@ -188,6 +196,17 @@ async function initSession() {
 }
 
 initSession();
+
+// ✅ DELAYED FIRST MESSAGE (PREMIUM FEEL)
+setTimeout(() => {
+  messages.innerHTML += `
+    <div class="ai">
+      <div class="bubble">
+        Hi 👋 Looking to book a dental appointment or have a question?
+      </div>
+    </div>
+  `;
+}, 500);
 
 // ENTER KEY
 input.addEventListener("keypress", function(e) {
@@ -212,7 +231,7 @@ async function sendMessage() {
   input.value = "";
   messages.scrollTop = messages.scrollHeight;
 
-  // TYPING ANIMATION
+  // TYPING
   const typing = document.createElement("div");
   typing.className = "ai";
   typing.innerHTML = `
