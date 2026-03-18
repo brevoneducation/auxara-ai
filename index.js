@@ -4,6 +4,7 @@ const express = require("express");
 const cors = require("cors");
 const OpenAI = require("openai");
 const axios = require("axios");
+const { v4: uuidv4 } = require("uuid");
 
 const app = express();
 
@@ -15,100 +16,136 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 🧠 TEMP MEMORY (simple)
-const userData = {};
+const sessions = {};
 
+// CLEAN OLD SESSIONS
+setInterval(() => {
+  const oneHourAgo = Date.now() - 60 * 60 * 1000;
+  for (const id in sessions) {
+    if (sessions[id].createdAt < oneHourAgo) {
+      delete sessions[id];
+    }
+  }
+}, 60 * 60 * 1000);
+
+// NAME VALIDATION
+function isValidName(str) {
+  const excluded = ["ok","okay","yes","no","hi","hello","hey","sure","thanks"];
+  const cleaned = str.trim().toLowerCase();
+
+  if (excluded.includes(cleaned)) return false;
+  if (!/^[a-zA-Z ]{2,40}$/.test(str)) return false;
+
+  return true;
+}
+
+// PHONE DETECTION
+function extractPhone(str) {
+  const match = str.match(/\+?\d[\d\s\-().]{7,15}/);
+  if (match) return match[0].replace(/[\s\-().]/g, "");
+  return null;
+}
+
+// CREATE SESSION
+app.post("/session", (req, res) => {
+  const sessionId = uuidv4();
+
+  sessions[sessionId] = {
+    name: null,
+    phone: null,
+    sent: false,
+    createdAt: Date.now(),
+    history: [],
+  };
+
+  res.json({ sessionId });
+});
+
+// CHAT
 app.post("/chat", async (req, res) => {
-  const userMessage = req.body.message;
-  const clinic = req.body.clinic || "unknown";
+  const { message, clinic, sessionId } = req.body;
 
-  const userId = req.headers["x-forwarded-for"] || req.ip;
-
-  if (!userData[userId]) {
-    userData[userId] = {
-      name: null,
-      phone: null,
-      sent: false
-    };
+  if (!sessionId || !sessions[sessionId]) {
+    return res.json({ reply: "Please refresh the page." });
   }
 
-  const state = userData[userId];
+  const state = sessions[sessionId];
 
-  try {
-    // 🔍 DETECT PHONE (GLOBAL)
-    const phoneMatch = userMessage.match(/\+?\d[\d\s-]{7,15}/);
-    if (phoneMatch) {
-      state.phone = phoneMatch[0].replace(/\s+/g, "");
-    }
+  // EXTRACT PHONE
+  const phone = extractPhone(message);
+  if (phone && !state.phone) state.phone = phone;
 
-    // 🔍 DETECT NAME (VERY SIMPLE)
-    if (!state.name && /^[a-zA-Z ]{2,30}$/.test(userMessage)) {
-      state.name = userMessage.trim();
-    }
+  // EXTRACT NAME
+  if (!phone && !state.name && isValidName(message)) {
+    state.name = message.trim();
+  }
 
-    // 🚀 SEND LEAD (ONLY WHEN BOTH EXIST)
-    if (state.name && state.phone && !state.sent) {
-      await axios.post(
-        `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
-        {
-          chat_id: process.env.TELEGRAM_CHAT_ID,
-          text: `🚀 New Lead
+  // SEND TO TELEGRAM
+  if (state.name && state.phone && !state.sent) {
+    await axios.post(
+      `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
+      {
+        chat_id: process.env.TELEGRAM_CHAT_ID,
+        text: `🚀 New Lead
 
-Clinic: ${clinic}
+Clinic: ${clinic || "unknown"}
 Name: ${state.name}
 Phone: ${state.phone}`
-        }
-      );
+      }
+    );
 
-      state.sent = true;
-    }
+    state.sent = true;
+  }
 
-    // 🤖 GPT HANDLES EVERYTHING ELSE
+  const stateContext = `
+Name: ${state.name || "not collected"}
+Phone: ${state.phone || "not collected"}
+`;
+
+  state.history.push({ role: "user", content: message });
+
+  if (state.history.length > 10) {
+    state.history = state.history.slice(-10);
+  }
+
+  try {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
           content: `
-You are a high-converting dental clinic receptionist.
+You are a smart dental receptionist.
 
-GOAL:
-Capture user's name and phone number and guide them toward booking.
+${stateContext}
 
-STYLE:
-- Friendly, human, confident
-- 1–2 lines max
-- No long explanations
+RULES:
+- Answer briefly
+- Then guide toward collecting details
+- Ask only missing info
+- Never repeat questions
 
-BEHAVIOR:
-- Answer user question first
-- Then move toward booking
-- Ask for name + phone naturally
-- Never repeat questions unnecessarily
+Flow:
+- If no name → ask name
+- If name but no phone → ask phone
+- If both → confirm and stop
 
-IMPORTANT:
-- If user gives name → ask phone
-- If user gives phone → move toward booking
-- Do not act robotic
-- Do not restart conversation
-
-You are a smart closer, not a chatbot.
+Keep replies short, natural, human.
 `
         },
-        {
-          role: "user",
-          content: userMessage,
-        },
+        ...state.history
       ],
     });
 
     const reply = completion.choices[0].message.content;
 
+    state.history.push({ role: "assistant", content: reply });
+
     res.json({ reply });
 
   } catch (error) {
     console.error(error);
-    res.status(500).json({ reply: "Error connecting to AI" });
+    res.json({ reply: "Error, try again." });
   }
 });
 

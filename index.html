@@ -114,7 +114,6 @@
       background: #43a047;
     }
 
-    /* Typing dots */
     .dot {
       height: 6px;
       width: 6px;
@@ -136,15 +135,6 @@
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(5px); }
       to { opacity: 1; transform: translateY(0); }
-    }
-
-    /* Scrollbar */
-    #messages::-webkit-scrollbar {
-      width: 5px;
-    }
-    #messages::-webkit-scrollbar-thumb {
-      background: #ccc;
-      border-radius: 10px;
     }
   </style>
 </head>
@@ -175,9 +165,29 @@
 const input = document.getElementById("input");
 const messages = document.getElementById("messages");
 
-// 🧠 GET CLINIC NAME
+const BACKEND = "https://auxara-ai.onrender.com";
+
+// 🔥 GET CLINIC NAME FROM URL
 const urlParams = new URLSearchParams(window.location.search);
 const clinic = urlParams.get("clinic") || "unknown";
+
+// 🧠 SESSION ID
+let sessionId = null;
+
+// CREATE SESSION
+async function initSession() {
+  try {
+    const res = await fetch(`${BACKEND}/session`, {
+      method: "POST"
+    });
+    const data = await res.json();
+    sessionId = data.sessionId;
+  } catch (err) {
+    console.error("Session error:", err);
+  }
+}
+
+initSession();
 
 // ENTER KEY
 input.addEventListener("keypress", function(e) {
@@ -188,7 +198,11 @@ async function sendMessage() {
   const message = input.value.trim();
   if (!message) return;
 
-  // User message
+  if (!sessionId) {
+    await initSession();
+  }
+
+  // USER MESSAGE
   messages.innerHTML += `
     <div class="user">
       <div class="bubble">${message}</div>
@@ -198,7 +212,7 @@ async function sendMessage() {
   input.value = "";
   messages.scrollTop = messages.scrollHeight;
 
-  // Typing animation
+  // TYPING ANIMATION
   const typing = document.createElement("div");
   typing.className = "ai";
   typing.innerHTML = `
@@ -209,19 +223,21 @@ async function sendMessage() {
     </div>
   `;
   messages.appendChild(typing);
-  messages.scrollTop = messages.scrollHeight;
 
   try {
-    const res = await fetch("https://auxara-ai.onrender.com/chat", {
+    const res = await fetch(`${BACKEND}/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ message, clinic })
+      body: JSON.stringify({
+        message,
+        clinic,
+        sessionId
+      })
     });
 
     const data = await res.json();
-
     typing.remove();
 
     messages.innerHTML += `
@@ -234,10 +250,9 @@ async function sendMessage() {
 
   } catch (err) {
     typing.remove();
-
     messages.innerHTML += `
       <div class="ai">
-        <div class="bubble">⚠️ Something went wrong. Try again.</div>
+        <div class="bubble">Something went wrong. Try again.</div>
       </div>
     `;
   }
