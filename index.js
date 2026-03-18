@@ -28,7 +28,7 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000);
 
-// ✅ STRICT NAME VALIDATION (FIXED)
+// ✅ STRICT NAME VALIDATION
 function isValidName(str) {
   const excluded = [
     "ok","okay","yes","no","hi","hello","hey","sure",
@@ -86,16 +86,12 @@ app.post("/chat", async (req, res) => {
     state.phone = phone;
   }
 
-  // ✅ EXTRACT NAME (STRICT)
-  if (
-    !phone &&
-    !state.name &&
-    isValidName(message)
-  ) {
+  // ✅ EXTRACT NAME
+  if (!phone && !state.name && isValidName(message)) {
     state.name = message.trim();
   }
 
-  // ✅ SEND TO TELEGRAM (ONLY ONCE)
+  // ✅ SEND TO TELEGRAM
   if (state.name && state.phone && !state.sent) {
     try {
       await axios.post(
@@ -114,6 +110,13 @@ Phone: ${state.phone}`
     } catch (err) {
       console.error("Telegram error:", err.message);
     }
+  }
+
+  // 🛑 FINAL FIX — STOP AFTER LEAD CAPTURE
+  if (state.name && state.phone) {
+    return res.json({
+      reply: "Perfect 👍 Our team will contact you shortly."
+    });
   }
 
   const stateContext = `
@@ -163,7 +166,6 @@ IMPORTANT:
 
     const reply = completion.choices[0].message.content;
 
-    // SAVE AI RESPONSE
     state.history.push({ role: "assistant", content: reply });
 
     res.json({ reply });
