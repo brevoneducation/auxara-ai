@@ -15,7 +15,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 🧠 MEMORY
+// 🧠 MEMORY STORE
 const sessions = {};
 
 app.get("/", (req, res) => {
@@ -25,7 +25,12 @@ app.get("/", (req, res) => {
 app.post("/chat", async (req, res) => {
   const userMessage = req.body.message;
   const clinic = req.body.clinic || "unknown";
-  const sessionId = req.body.sessionId || "default";
+
+  // ✅ UNIQUE SESSION PER USER (IMPORTANT FIX)
+  const sessionId =
+    req.body.sessionId ||
+    req.headers["x-forwarded-for"] ||
+    req.socket.remoteAddress;
 
   if (!sessions[sessionId]) {
     sessions[sessionId] = {
@@ -39,13 +44,13 @@ app.post("/chat", async (req, res) => {
 
   const session = sessions[sessionId];
 
-  // 🔍 PHONE DETECTION (STRONG)
-  const phoneMatch = userMessage.match(/\+?\d{10,15}/);
+  // 🔍 PHONE DETECTION (RELAXED)
+  const phoneMatch = userMessage.match(/\+?\d{8,15}/);
   if (phoneMatch) {
     session.phone = phoneMatch[0];
   }
 
-  // 🔍 NAME DETECTION (BETTER)
+  // 🔍 NAME DETECTION
   if (!session.name && !phoneMatch && userMessage.length < 40) {
     if (/^[a-zA-Z ]+$/.test(userMessage)) {
       session.name = userMessage.trim();
@@ -53,7 +58,7 @@ app.post("/chat", async (req, res) => {
   }
 
   // 🔍 TIME DETECTION
-  if (!session.time && /(am|pm|\d{1,2}[: ]?\d{0,2})/i.test(userMessage)) {
+  if (!session.time && /(am|pm|\d{1,2})/i.test(userMessage)) {
     session.time = userMessage;
   }
 
@@ -66,57 +71,50 @@ app.post("/chat", async (req, res) => {
         {
           role: "system",
           content: `
-You are a high-end dental clinic receptionist trained in real-world patient conversion.
+You are a high-end dental receptionist focused on converting visitors into booked appointments.
 
 CURRENT STATE:
 Name: ${session.name || "missing"}
 Phone: ${session.phone || "missing"}
 Time: ${session.time || "missing"}
 
-BEHAVIOR:
+RULES:
 
-1. Always respond naturally first
-2. Then move conversation forward
-3. NEVER repeat questions
-4. NEVER lose context
+- Always acknowledge user first
+- Then guide toward booking
+- Never repeat questions
+- Never assume old booking unless confirmed
 
 FLOW:
 
-- If pain → show urgency + guide booking
-- If missing name → ask name
-- If missing phone → ask phone
-- If both available → ask time
-- If time given → confirm booking
+- If user asks → answer briefly → then move to booking
+- If no name → ask name
+- If no phone → ask phone
+- If both → ask time
+- If time → confirm booking
 
 STYLE:
 
-- Max 2 lines
+- 1–2 lines max
 - Human tone
-- Slight authority (not pushy)
-- Smooth transitions
+- Confident, smooth
 
 EXAMPLES:
 
-Pain:
-"That sounds painful. We should get that checked quickly 😊 What’s your name?"
-
-After name:
-"Nice to meet you, Iqra 😊 What’s the best number to reach you?"
+Teeth whitening:
+"Yes, we do professional whitening 😊 It’s quick and very effective. I can get this arranged for you — what’s your name?"
 
 After phone:
-"Perfect, got it 👍 What time works best for you?"
+"Perfect 👍 What time works best for you?"
 
 After time:
-"Done. I’ll have the clinic confirm your 10am slot shortly 😊"
+"Done. I’ll have the clinic confirm your slot shortly 😊"
 
 STRICT:
 
-- Never restart conversation
+- Never reuse old booking info
 - Never act robotic
-- Never ask same thing twice
-- Always progress forward
-
-You are a real receptionist, not a chatbot.
+- Always move forward
 `
         },
         ...session.messages,
@@ -127,8 +125,8 @@ You are a real receptionist, not a chatbot.
 
     session.messages.push({ role: "assistant", content: reply });
 
-    // 📩 TELEGRAM (SAFE VERSION)
-    if (session.name && session.phone && !session.sent) {
+    // 📩 TELEGRAM FIX (RELIABLE)
+    if (session.phone && !session.sent) {
       session.sent = true;
 
       try {
@@ -139,16 +137,16 @@ You are a real receptionist, not a chatbot.
             text: `🔥 NEW LEAD
 
 🏥 Clinic: ${clinic}
-👤 Name: ${session.name}
+👤 Name: ${session.name || "Not provided"}
 📞 Phone: ${session.phone}
-🕒 Time: ${session.time || "Not given"}
+🕒 Time: ${session.time || "Not provided"}
 
-💬 Last Message: ${userMessage}
+💬 Message: ${userMessage}
 `,
           }
         );
       } catch (err) {
-        console.log("Telegram failed but continuing...");
+        console.log("Telegram failed:", err.message);
       }
     }
 
@@ -158,7 +156,7 @@ You are a real receptionist, not a chatbot.
     console.error(error);
 
     res.json({
-      reply: "Got it 👍 just one sec...",
+      reply: "Got it 👍 just a second...",
     });
   }
 });
