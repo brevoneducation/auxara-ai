@@ -9,15 +9,15 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// ✅ SERVE widget.js
 app.use(express.static(__dirname));
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 🧠 MEMORY STORE
-const sessions = {};
-
+// ✅ TEST ROUTE
 app.get("/", (req, res) => {
   res.send("Auxara AI Server is running 🚀");
 });
@@ -26,141 +26,118 @@ app.post("/chat", async (req, res) => {
   const userMessage = req.body.message;
   const clinic = req.body.clinic || "unknown";
 
-  // ✅ UNIQUE SESSION PER USER (IMPORTANT FIX)
-  const sessionId =
-    req.body.sessionId ||
-    req.headers["x-forwarded-for"] ||
-    req.socket.remoteAddress;
-
-  if (!sessions[sessionId]) {
-    sessions[sessionId] = {
-      messages: [],
-      name: null,
-      phone: null,
-      time: null,
-      sent: false,
-    };
-  }
-
-  const session = sessions[sessionId];
-
-  // 🔍 PHONE DETECTION (RELAXED)
-  const phoneMatch = userMessage.match(/\+?\d{8,15}/);
-  if (phoneMatch) {
-    session.phone = phoneMatch[0];
-  }
-
-  // 🔍 NAME DETECTION
-  if (!session.name && !phoneMatch && userMessage.length < 40) {
-    if (/^[a-zA-Z ]+$/.test(userMessage)) {
-      session.name = userMessage.trim();
-    }
-  }
-
-  // 🔍 TIME DETECTION
-  if (!session.time && /(am|pm|\d{1,2})/i.test(userMessage)) {
-    session.time = userMessage;
-  }
-
-  session.messages.push({ role: "user", content: userMessage });
-
   try {
+    // 🔍 DETECT PHONE (STRONG REGEX)
+    const phoneMatch = userMessage.match(/\+?\d[\d\s-]{7,15}/);
+
+    // 🚀 SEND LEAD TO TELEGRAM
+    if (phoneMatch) {
+      await axios.post(
+        `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
+        {
+          chat_id: process.env.TELEGRAM_CHAT_ID,
+          text: `🚀 New Lead
+
+Clinic: ${clinic}
+Message: ${userMessage}`
+        }
+      );
+    }
+
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
           content: `
-You are a high-end dental receptionist focused on converting visitors into booked appointments.
+You are a highly skilled dental clinic receptionist trained in sales psychology.
 
-CURRENT STATE:
-Name: ${session.name || "missing"}
-Phone: ${session.phone || "missing"}
-Time: ${session.time || "missing"}
+YOUR OBJECTIVE:
+Convert visitors into booked appointments while sounding natural, helpful, and human.
 
-RULES:
+CRITICAL INTELLIGENCE RULES:
 
-- Always acknowledge user first
+1. ALWAYS understand context first
+- If user asks something → answer it FIRST
 - Then guide toward booking
-- Never repeat questions
-- Never assume old booking unless confirmed
 
-FLOW:
+2. NEVER repeat questions unnecessarily
+- If user already gave name → don’t ask again
+- If user gave phone → don’t ask again
+- If user gave time → move forward
 
-- If user asks → answer briefly → then move to booking
-- If no name → ask name
-- If no phone → ask phone
-- If both → ask time
-- If time → confirm booking
+3. NEVER hallucinate or assume previous bookings
+- No fake confirmations
+- No “you already booked”
 
-STYLE:
+4. CONVERSATION FLOW:
 
+Interest / pain:
+→ Show empathy
+→ Suggest action
+→ Ask for name
+
+Name received:
+→ Ask for phone
+
+Phone received:
+→ Ask for time
+
+Time received:
+→ Confirm booking
+
+5. STYLE:
 - 1–2 lines max
+- Warm + confident
+- Slight urgency (not pushy)
 - Human tone
-- Confident, smooth
 
 EXAMPLES:
 
-Teeth whitening:
-"Yes, we do professional whitening 😊 It’s quick and very effective. I can get this arranged for you — what’s your name?"
+Tooth pain:
+"That sounds painful—you should get it checked soon 😊 What’s your name?"
+
+Pricing:
+"It depends on the case, but the clinic will confirm exact cost 😊 What’s your name?"
+
+After name:
+"Got it 👍 What’s your phone number?"
 
 After phone:
-"Perfect 👍 What time works best for you?"
+"Perfect. What time works best for you?"
 
 After time:
-"Done. I’ll have the clinic confirm your slot shortly 😊"
+"Done! I’ll have the clinic confirm your appointment shortly 😊"
 
 STRICT:
+- No long replies
+- No robotic tone
+- No repeating same question
+- No confusion
 
-- Never reuse old booking info
-- Never act robotic
-- Always move forward
+You are not a chatbot. You are a smart, calm closer.
 `
         },
-        ...session.messages,
+        {
+          role: "user",
+          content: userMessage,
+        },
       ],
     });
 
     const reply = completion.choices[0].message.content;
 
-    session.messages.push({ role: "assistant", content: reply });
-
-    // 📩 TELEGRAM FIX (RELIABLE)
-    if (session.phone && !session.sent) {
-      session.sent = true;
-
-      try {
-        await axios.post(
-          `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
-          {
-            chat_id: process.env.TELEGRAM_CHAT_ID,
-            text: `🔥 NEW LEAD
-
-🏥 Clinic: ${clinic}
-👤 Name: ${session.name || "Not provided"}
-📞 Phone: ${session.phone}
-🕒 Time: ${session.time || "Not provided"}
-
-💬 Message: ${userMessage}
-`,
-          }
-        );
-      } catch (err) {
-        console.log("Telegram failed:", err.message);
-      }
-    }
+    console.log(`📩 Clinic: ${clinic} | Message: ${userMessage}`);
 
     res.json({ reply });
 
   } catch (error) {
     console.error(error);
-
-    res.json({
-      reply: "Got it 👍 just a second...",
-    });
+    res.status(500).json({ reply: "Error connecting to AI" });
   }
 });
 
+// ✅ PORT
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
