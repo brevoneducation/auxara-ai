@@ -58,7 +58,7 @@
 
   // 🔔 SMART NOTIFICATION POPUP
   const notification = document.createElement("div");
-  notification.innerHTML = "Hi 👋 Need help booking a dental appointment?";
+  notification.innerHTML = "Hi 👋 Looking to book a dental appointment or have a question?";
   notification.style.position = "fixed";
   notification.style.bottom = "95px";
   notification.style.right = "90px";
