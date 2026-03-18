@@ -15,15 +15,20 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 🧠 MEMORY (per user IP)
+// 🧠 MEMORY
 const userState = {};
+
+const invalidNames = [
+  "ok", "okay", "yes", "hi", "hello", "hey", "hmm", "yo"
+];
 
 app.get("/", (req, res) => {
   res.send("Auxara AI Server is running 🚀");
 });
 
 app.post("/chat", async (req, res) => {
-  const userMessage = req.body.message.trim();
+  const originalMessage = req.body.message.trim();
+  const lower = originalMessage.toLowerCase();
   const clinic = req.body.clinic || "unknown";
   const userId = req.ip;
 
@@ -31,7 +36,6 @@ app.post("/chat", async (req, res) => {
     userState[userId] = {
       name: null,
       phone: null,
-      time: null,
       sent: false
     };
   }
@@ -39,18 +43,23 @@ app.post("/chat", async (req, res) => {
   const state = userState[userId];
 
   try {
-    // ✅ NAME DETECTION (ONLY ONCE)
-    if (!state.name && /^[a-zA-Z]{2,20}( [a-zA-Z]{2,20})?$/.test(userMessage)) {
-      state.name = userMessage;
+
+    // ✅ DETECT PHONE (FLEXIBLE INTERNATIONAL)
+    const phoneMatch = originalMessage.match(/\+?\d[\d\s-]{7,15}/);
+    if (!state.phone && phoneMatch) {
+      state.phone = phoneMatch[0].replace(/\s+/g, "");
     }
 
-    // ✅ STRICT PHONE VALIDATION
-    const cleanPhone = userMessage.replace(/\s+/g, "");
-    if (!state.phone && /^\+?\d{10,14}$/.test(cleanPhone)) {
-      state.phone = cleanPhone;
+    // ✅ DETECT NAME (SMART FILTER)
+    if (
+      !state.name &&
+      /^[a-zA-Z ]{2,25}$/.test(originalMessage) &&
+      !invalidNames.includes(lower)
+    ) {
+      state.name = originalMessage;
     }
 
-    // 🚀 SEND TO TELEGRAM ONLY ONCE (FULL LEAD)
+    // 🚀 SEND LEAD ONLY WHEN BOTH EXIST
     if (state.name && state.phone && !state.sent) {
       await axios.post(
         `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
@@ -67,10 +76,10 @@ Phone: ${state.phone}`
       state.sent = true;
     }
 
-    // 🎯 CONTROLLED FLOW
+    // 🎯 FLOW
     let reply = "";
 
-    // 1️⃣ FIRST MESSAGE → USE AI
+    // FIRST MESSAGE → AI RESPONSE
     if (!state.name && !state.phone) {
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
@@ -78,17 +87,20 @@ Phone: ${state.phone}`
           {
             role: "system",
             content: `
-You are a friendly dental receptionist.
+You are a smart dental receptionist.
 
-- Answer briefly
-- Then ask for name
-- 1–2 lines only
-- Natural human tone
+- Answer user naturally
+- Then ask for their name
+- Keep it short (1–2 lines)
+- Friendly and human
+
+Example:
+"That can be treated easily 😊 What’s your name?"
 `
           },
           {
             role: "user",
-            content: userMessage,
+            content: originalMessage,
           },
         ],
       });
@@ -96,25 +108,19 @@ You are a friendly dental receptionist.
       reply = completion.choices[0].message.content;
     }
 
-    // 2️⃣ ASK NAME
+    // ASK NAME
     else if (!state.name) {
-      reply = "I’ll get this booked for you 😊 What’s your name?";
+      reply = "I’ll get this arranged for you 😊 What’s your name?";
     }
 
-    // 3️⃣ ASK PHONE
+    // ASK PHONE
     else if (!state.phone) {
-      reply = `Got it, ${state.name} 👍 What’s your phone number?`;
+      reply = `Thanks ${state.name} 👍 What’s your phone number?`;
     }
 
-    // 4️⃣ ASK TIME
-    else if (!state.time) {
-      state.time = userMessage;
-      reply = "Perfect. What time works best for you?";
-    }
-
-    // 5️⃣ FINAL CONFIRM
+    // FINAL MESSAGE
     else {
-      reply = "Done! I’ll have the clinic confirm your appointment shortly 😊";
+      reply = "Perfect 👍 Our team will contact you shortly.";
     }
 
     res.json({ reply });
