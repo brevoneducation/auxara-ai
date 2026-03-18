@@ -9,15 +9,15 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
-
-// ✅ SERVE widget.js
 app.use(express.static(__dirname));
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ✅ TEST ROUTE
+// 🧠 TEMP MEMORY (per IP)
+const userState = {};
+
 app.get("/", (req, res) => {
   res.send("Auxara AI Server is running 🚀");
 });
@@ -25,13 +25,28 @@ app.get("/", (req, res) => {
 app.post("/chat", async (req, res) => {
   const userMessage = req.body.message;
   const clinic = req.body.clinic || "unknown";
+  const userId = req.ip; // simple tracking
+
+  if (!userState[userId]) {
+    userState[userId] = {};
+  }
+
+  const state = userState[userId];
 
   try {
-    // 🔍 DETECT PHONE (STRONG REGEX)
-    const phoneMatch = userMessage.match(/\+?\d[\d\s-]{7,15}/);
+    // 🔍 DETECT NAME (basic)
+    if (!state.name && /^[a-zA-Z ]{2,30}$/.test(userMessage)) {
+      state.name = userMessage.trim();
+    }
 
-    // 🚀 SEND LEAD TO TELEGRAM
+    // 🔍 DETECT PHONE
+    const phoneMatch = userMessage.match(/\+?\d[\d\s-]{7,15}/);
     if (phoneMatch) {
+      state.phone = phoneMatch[0];
+    }
+
+    // 🚀 SEND TO TELEGRAM ONLY WHEN BOTH EXIST
+    if (state.name && state.phone && !state.sent) {
       await axios.post(
         `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
         {
@@ -39,95 +54,53 @@ app.post("/chat", async (req, res) => {
           text: `🚀 New Lead
 
 Clinic: ${clinic}
-Message: ${userMessage}`
+Name: ${state.name}
+Phone: ${state.phone}`
         }
       );
+
+      state.sent = true;
     }
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: `
-You are a highly skilled dental clinic receptionist trained in sales psychology.
+    // 🧠 CONTROLLED FLOW (VERY IMPORTANT)
+    let reply = "";
 
-YOUR OBJECTIVE:
-Convert visitors into booked appointments while sounding natural, helpful, and human.
+    if (!state.name) {
+      reply = "I’ll get this checked for you 😊 What’s your name?";
+    } else if (!state.phone) {
+      reply = `Got it, ${state.name} 👍 What’s your phone number?`;
+    } else if (!state.time) {
+      state.time = userMessage;
+      reply = "Perfect. What time works best for you?";
+    } else {
+      reply = "Done! I’ll have the clinic confirm your appointment shortly 😊";
+    }
 
-CRITICAL INTELLIGENCE RULES:
+    // 🤖 ONLY USE AI FOR FIRST MESSAGE / QUESTIONS
+    if (!state.name && !state.phone) {
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `
+You are a smart dental receptionist.
 
-1. ALWAYS understand context first
-- If user asks something → answer it FIRST
-- Then guide toward booking
-
-2. NEVER repeat questions unnecessarily
-- If user already gave name → don’t ask again
-- If user gave phone → don’t ask again
-- If user gave time → move forward
-
-3. NEVER hallucinate or assume previous bookings
-- No fake confirmations
-- No “you already booked”
-
-4. CONVERSATION FLOW:
-
-Interest / pain:
-→ Show empathy
-→ Suggest action
-→ Ask for name
-
-Name received:
-→ Ask for phone
-
-Phone received:
-→ Ask for time
-
-Time received:
-→ Confirm booking
-
-5. STYLE:
-- 1–2 lines max
-- Warm + confident
-- Slight urgency (not pushy)
-- Human tone
-
-EXAMPLES:
-
-Tooth pain:
-"That sounds painful—you should get it checked soon 😊 What’s your name?"
-
-Pricing:
-"It depends on the case, but the clinic will confirm exact cost 😊 What’s your name?"
-
-After name:
-"Got it 👍 What’s your phone number?"
-
-After phone:
-"Perfect. What time works best for you?"
-
-After time:
-"Done! I’ll have the clinic confirm your appointment shortly 😊"
-
-STRICT:
-- No long replies
-- No robotic tone
-- No repeating same question
-- No confusion
-
-You are not a chatbot. You are a smart, calm closer.
+- Answer briefly
+- Then ask for name
+- 1–2 lines only
+- Friendly + natural
 `
-        },
-        {
-          role: "user",
-          content: userMessage,
-        },
-      ],
-    });
+          },
+          {
+            role: "user",
+            content: userMessage,
+          },
+        ],
+      });
 
-    const reply = completion.choices[0].message.content;
-
-    console.log(`📩 Clinic: ${clinic} | Message: ${userMessage}`);
+      reply = completion.choices[0].message.content;
+    }
 
     res.json({ reply });
 
@@ -137,7 +110,6 @@ You are not a chatbot. You are a smart, calm closer.
   }
 });
 
-// ✅ PORT
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
