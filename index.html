@@ -5,79 +5,146 @@
 
   <style>
     body {
-      font-family: Arial, sans-serif;
-      background: #f5f5f5;
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: transparent;
     }
 
     #chatbox {
       position: fixed;
-      bottom: 20px;
-      right: 20px;
-      width: 320px;
+      bottom: 0;
+      right: 0;
+      width: 100%;
+      max-width: 350px;
+      height: 500px;
       background: white;
-      border-radius: 12px;
-      box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+      border-radius: 16px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      display: flex;
+      flex-direction: column;
       overflow: hidden;
     }
 
     #header {
-      background: #4CAF50;
+      background: linear-gradient(135deg, #4CAF50, #2e7d32);
       color: white;
-      padding: 12px;
-      font-weight: bold;
+      padding: 14px;
+      font-weight: 600;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #status {
+      width: 8px;
+      height: 8px;
+      background: #00ff88;
+      border-radius: 50%;
     }
 
     #messages {
-      height: 300px;
+      flex: 1;
       overflow-y: auto;
-      padding: 10px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      gap: 6px;
       font-size: 14px;
+      background: #fafafa;
+    }
+
+    .user, .ai {
+      display: flex;
     }
 
     .user {
-      text-align: right;
-      margin: 5px 0;
-    }
-
-    .ai {
-      text-align: left;
-      margin: 5px 0;
+      justify-content: flex-end;
     }
 
     .bubble {
-      display: inline-block;
-      padding: 8px 12px;
-      border-radius: 10px;
-      max-width: 80%;
+      padding: 10px 14px;
+      border-radius: 14px;
+      max-width: 75%;
+      line-height: 1.4;
+      animation: fadeIn 0.2s ease;
     }
 
     .user .bubble {
       background: #4CAF50;
       color: white;
+      border-bottom-right-radius: 4px;
     }
 
     .ai .bubble {
-      background: #eee;
+      background: #eaeaea;
+      color: #333;
+      border-bottom-left-radius: 4px;
     }
 
     #inputArea {
       display: flex;
-      border-top: 1px solid #ddd;
+      border-top: 1px solid #eee;
+      padding: 8px;
+      background: white;
     }
 
     input {
       flex: 1;
       padding: 10px;
-      border: none;
+      border: 1px solid #ddd;
+      border-radius: 8px;
       outline: none;
+      font-size: 14px;
     }
 
     button {
-      padding: 10px 15px;
+      margin-left: 6px;
+      padding: 10px 14px;
       border: none;
       background: #4CAF50;
       color: white;
+      border-radius: 8px;
       cursor: pointer;
+      transition: 0.2s;
+    }
+
+    button:hover {
+      background: #43a047;
+    }
+
+    /* Typing dots */
+    .dot {
+      height: 6px;
+      width: 6px;
+      margin: 0 2px;
+      background-color: #999;
+      border-radius: 50%;
+      display: inline-block;
+      animation: bounce 1.4s infinite ease-in-out both;
+    }
+
+    .dot:nth-child(1) { animation-delay: -0.32s; }
+    .dot:nth-child(2) { animation-delay: -0.16s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: scale(0); }
+      40% { transform: scale(1); }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Scrollbar */
+    #messages::-webkit-scrollbar {
+      width: 5px;
+    }
+    #messages::-webkit-scrollbar-thumb {
+      background: #ccc;
+      border-radius: 10px;
     }
   </style>
 </head>
@@ -85,37 +152,41 @@
 <body>
 
 <div id="chatbox">
-  <div id="header">Auxara AI Receptionist</div>
+  <div id="header">
+    <div id="status"></div>
+    Smart Dental Assistant
+  </div>
 
   <div id="messages">
     <div class="ai">
       <div class="bubble">
-        Hi 👋 Looking to book a dental appointment or have a question?
+        👋 Hi! I can help you book a dental appointment instantly.
       </div>
     </div>
   </div>
 
   <div id="inputArea">
-    <input id="input" placeholder="Type message..." />
+    <input id="input" placeholder="Type your message..." />
     <button onclick="sendMessage()">Send</button>
   </div>
 </div>
 
 <script>
 const input = document.getElementById("input");
+const messages = document.getElementById("messages");
 
-// 🔥 ENTER KEY SUPPORT
+// 🧠 GET CLINIC NAME
+const urlParams = new URLSearchParams(window.location.search);
+const clinic = urlParams.get("clinic") || "unknown";
+
+// ENTER KEY
 input.addEventListener("keypress", function(e) {
-  if (e.key === "Enter") {
-    sendMessage();
-  }
+  if (e.key === "Enter") sendMessage();
 });
 
 async function sendMessage() {
   const message = input.value.trim();
   if (!message) return;
-
-  const messages = document.getElementById("messages");
 
   // User message
   messages.innerHTML += `
@@ -125,25 +196,51 @@ async function sendMessage() {
   `;
 
   input.value = "";
+  messages.scrollTop = messages.scrollHeight;
 
-  const res = await fetch("https://auxara-ai.onrender.com/chat", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ message })
-  });
-
-  const data = await res.json();
-
-  // AI reply
-  messages.innerHTML += `
-    <div class="ai">
-      <div class="bubble">${data.reply}</div>
+  // Typing animation
+  const typing = document.createElement("div");
+  typing.className = "ai";
+  typing.innerHTML = `
+    <div class="bubble">
+      <span class="dot"></span>
+      <span class="dot"></span>
+      <span class="dot"></span>
     </div>
   `;
-
+  messages.appendChild(typing);
   messages.scrollTop = messages.scrollHeight;
+
+  try {
+    const res = await fetch("https://auxara-ai.onrender.com/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ message, clinic })
+    });
+
+    const data = await res.json();
+
+    typing.remove();
+
+    messages.innerHTML += `
+      <div class="ai">
+        <div class="bubble">${data.reply}</div>
+      </div>
+    `;
+
+    messages.scrollTop = messages.scrollHeight;
+
+  } catch (err) {
+    typing.remove();
+
+    messages.innerHTML += `
+      <div class="ai">
+        <div class="bubble">⚠️ Something went wrong. Try again.</div>
+      </div>
+    `;
+  }
 }
 </script>
 
